@@ -69,9 +69,10 @@ def call_ollama(prompt: str) -> str:
                 "options": {
                     "temperature": 0.2,
                     "num_predict": 2048,
+                    "num_ctx": 2048
                 }
             },
-            timeout=120
+            timeout=300
         )
         response.raise_for_status()
         return response.json().get("response", "")
