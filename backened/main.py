@@ -6,6 +6,7 @@ from pydantic import BaseModel
 import requests
 import json
 import re
+from prompts import build_analysis_prompt, get_kpi_names, get_assessment_dimensions
 
 app = FastAPI(title="Supervisor Transcript Analyzer")
 
@@ -28,11 +29,11 @@ class TranscriptRequest(BaseModel):
 
 class Evidence(BaseModel):
     quote: str
-    sentiment: str   # "positive" | "negative" | "neutral"
-    pattern: str     # what behavioral pattern this reveals
+    sentiment: str
+    pattern: str
 
 class RubricScore(BaseModel):
-    score: int       # 1–10
+    score: int
     justification: str
 
 class AnalysisResponse(BaseModel):
@@ -42,78 +43,13 @@ class AnalysisResponse(BaseModel):
     gap_analysis: list[str]
     followup_questions: list[str]
 
-# ── Prompt ────────────────────────────────────────────────────────────────────
-
-SYSTEM_PROMPT = """
-You are an expert analyst evaluating supervisor transcripts for a fellowship program.
-
-Your job is to analyze a supervisor's description of a Fellow (intern) and return a structured JSON analysis.
-
-The 8 business KPIs you must map against are:
-1. Revenue Growth - Did the Fellow contribute to increasing revenue?
-2. Customer Acquisition - Did the Fellow help bring in new customers?
-3. Customer Retention - Did the Fellow improve customer loyalty or reduce churn?
-4. Operational Efficiency - Did the Fellow streamline processes or reduce waste?
-5. Team Productivity - Did the Fellow improve team output or morale?
-6. Product/Service Quality - Did the Fellow improve quality of deliverables?
-7. Market Expansion - Did the Fellow help enter new markets or segments?
-8. Systems Building - Did the Fellow build scalable systems, processes, or documentation?
-
-The assessment dimensions are:
-- Technical competency
-- Communication skills
-- Initiative and ownership
-- Team collaboration
-- Problem-solving ability
-- Systems thinking
-- Leadership impact
-- Stakeholder management
-
-You MUST respond with ONLY a valid JSON object. No explanation, no markdown, no extra text.
-
-JSON format:
-{
-  "extracted_evidence": [
-    {
-      "quote": "<exact or near-exact quote from transcript>",
-      "sentiment": "positive" | "negative" | "neutral",
-      "pattern": "<behavioral pattern this reveals>"
-    }
-  ],
-  "rubric_score": {
-    "score": <integer 1-10>,
-    "justification": "<one paragraph citing specific evidence from the transcript>"
-  },
-  "kpi_mapping": [
-    "<KPI name> - <one sentence explaining how the Fellow's work connects to this KPI>"
-  ],
-  "gap_analysis": [
-    "<assessment dimension not covered> - <what information is missing>"
-  ],
-  "followup_questions": [
-    "<specific question targeting a gap identified above>"
-  ]
-}
-
-Rules:
-- extracted_evidence: pull 3–6 direct quotes or close paraphrases. Tag each as positive/negative/neutral.
-- rubric_score: score must be 1–10 integer. Justification must cite specific evidence.
-- kpi_mapping: only include KPIs that are clearly supported by the transcript. Do not guess.
-- gap_analysis: list every assessment dimension the transcript did NOT address.
-- followup_questions: 3–5 questions, each targeting a specific gap from gap_analysis.
-- If the transcript is too short or vague to analyze, still return the JSON but note it in the justification.
-"""
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
-def build_prompt(transcript: str) -> str:
-    return f"{SYSTEM_PROMPT}\n\nSupervisor Transcript:\n\"\"\"\n{transcript.strip()}\n\"\"\"\n\nRespond ONLY with the JSON object:"
 
 def parse_llm_response(raw: str) -> dict:
     """Strip markdown fences and parse JSON. Raises ValueError if parsing fails."""
     # Remove ```json ... ``` or ``` ... ``` fences
     clean = re.sub(r"```(?:json)?", "", raw).strip()
-    # Remove any leading/trailing non-JSON text (find first { and last })
+    # Find first { and last } to extract JSON object
     start = clean.find("{")
     end = clean.rfind("}") + 1
     if start == -1 or end == 0:
@@ -131,11 +67,11 @@ def call_ollama(prompt: str) -> str:
                 "prompt": prompt,
                 "stream": False,
                 "options": {
-                    "temperature": 0.2,   # Low temp = more consistent/structured output
-                    "num_predict": 2048,  # Enough tokens for full analysis
+                    "temperature": 0.2,
+                    "num_predict": 2048,
                 }
             },
-            timeout=120  # LLMs can be slow locally
+            timeout=120
         )
         response.raise_for_status()
         return response.json().get("response", "")
@@ -176,6 +112,14 @@ def health_check():
             "available_models": []
         }
 
+@app.get("/context")
+def get_context():
+    """Returns KPI names and assessment dimensions for the frontend."""
+    return {
+        "kpis": get_kpi_names(),
+        "dimensions": get_assessment_dimensions()
+    }
+
 @app.post("/analyze", response_model=AnalysisResponse)
 def analyze_transcript(request: TranscriptRequest):
     """Main endpoint: takes transcript, returns structured analysis."""
@@ -187,8 +131,8 @@ def analyze_transcript(request: TranscriptRequest):
             detail="Transcript is too short. Please paste the full supervisor transcript."
         )
 
-    # Build prompt and call Ollama
-    prompt = build_prompt(request.transcript)
+    # Build prompt using prompts.py and call Ollama
+    prompt = build_analysis_prompt(request.transcript)
     raw_response = call_ollama(prompt)
 
     # Parse the LLM's JSON response
