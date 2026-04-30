@@ -35,8 +35,8 @@ ollama run llama3.2 "say hello"
 ### 2. Clone the Repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git
-cd YOUR_REPO_NAME
+git clone https://github.com/rahu-oss/supervisor-Analysis-app.git
+cd supervisor-Analysis-app
 ```
 
 ---
