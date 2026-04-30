@@ -1,70 +1,260 @@
-# Getting Started with Create React App
+# Supervisor Transcript Analyzer
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A web app that analyzes supervisor transcripts using a local LLM (Ollama) to extract
+behavioral evidence, score Fellows on a rubric, map KPIs, identify gaps, and suggest
+follow-up questions.
 
-## Available Scripts
+---
 
-In the project directory, you can run:
+## Setup Instructions
 
-### `npm start`
+### 1. Install Ollama
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+Download and install from [ollama.com](https://ollama.com).
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+Then pull the model:
 
-### `npm test`
+```bash
+ollama pull llama3.2
+```
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Start Ollama (runs as a background service after install):
 
-### `npm run build`
+```bash
+ollama serve
+```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+Verify it works:
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+```bash
+ollama run llama3.2 "say hello"
+```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+---
 
-### `npm run eject`
+### 2. Clone the Repository
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+```bash
+git clone https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git
+cd YOUR_REPO_NAME
+```
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+---
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+### 3. Set Up the Backend
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+```bash
+cd backend
+python -m venv venv
+```
 
-## Learn More
+Activate the virtual environment:
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+- **Mac/Linux:**
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+```bash
+source venv/bin/activate
+```
 
-### Code Splitting
+- **Windows:**
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+```bash
+venv\Scripts\activate
+```
 
-### Analyzing the Bundle Size
+Install dependencies:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+```bash
+pip install -r requirements.txt
+```
 
-### Making a Progressive Web App
+Start the backend server:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+```bash
+uvicorn main:app --reload
+```
 
-### Advanced Configuration
+Backend will run at `http://localhost:8000`.
+Verify it's working: open `http://localhost:8000/health` in your browser.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+---
 
-### Deployment
+### 4. Set Up the Frontend
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+Open a new terminal:
 
-### `npm run build` fails to minify
+```bash
+cd frontend
+npm install
+npm start
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+Frontend will open automatically at `http://localhost:3000`.
+
+---
+
+### 5. Run the App
+
+1. Make sure Ollama is running (`ollama serve`)
+2. Make sure backend is running (`uvicorn main:app --reload`)
+3. Make sure frontend is running (`npm start`)
+4. Open `http://localhost:3000`
+5. Paste a supervisor transcript and click **Run Analysis**
+
+---
+
+## Model Used
+
+**Model:** `llama3.2` (3B parameters)
+
+**Why I chose it:**
+- Small enough to run on most laptops (requires ~4GB RAM)
+- Strong instruction-following — reliably returns structured JSON output
+- Fast enough for local use (20–60 seconds per analysis)
+- No API key or internet connection required after download
+
+I chose llama3.2 over larger models like llama3.1 (8B) because the analysis task
+requires structured output and careful instruction following — not creative generation.
+A smaller, more precise model outperforms a larger, slower one for this use case.
+
+---
+
+## Architecture Overview
+
+```
+┌─────────────────────┐         ┌─────────────────────┐         ┌─────────────────────┐
+│                     │  POST   │                     │  POST   │                     │
+│   React Frontend    │────────▶│   FastAPI Backend   │────────▶│   Ollama (local)    │
+│   localhost:3000    │◀────────│   localhost:8000    │◀────────│   localhost:11434   │
+│                     │  JSON   │                     │  JSON   │                     │
+└─────────────────────┘         └─────────────────────┘         └─────────────────────┘
+```
+
+- **Frontend (React):** Single-page app with a transcript textarea and 5 result
+  components (Evidence, Score, KPIs, Gaps, Follow-up Questions). Talks to the backend
+  via `fetch()`.
+
+- **Backend (FastAPI + Python):** Receives the transcript, builds a structured prompt
+  using KPI definitions and rubric context from `prompts.py`, sends it to Ollama,
+  parses the JSON response, validates it with Pydantic, and returns it to the frontend.
+
+- **Ollama:** Runs the `llama3.2` LLM entirely locally. No data leaves your machine.
+  The backend calls it via HTTP POST to `http://localhost:11434/api/generate`.
+
+---
+
+## Design Challenges
+
+### Challenge 1: Getting Consistent Structured JSON from the LLM
+
+**Problem:** LLMs don't naturally return clean JSON. They add explanations, markdown
+fences, preambles like "Sure! Here's the analysis:", and sometimes hallucinate extra
+fields or skip required ones.
+
+**Approach:**
+- Injected the full KPI definitions and scoring rubric directly into the prompt so
+  the model scores against real criteria, not its own assumptions.
+- Added a one-shot example showing exact input → exact JSON output, which reduced
+  malformed responses significantly.
+- Instructed the model explicitly: "Start your response with `{` and end with `}`"
+  which forces JSON-first output.
+- Built a `parse_llm_response()` function that strips markdown fences with regex,
+  then finds the first `{` and last `}` to extract valid JSON even from messy output.
+- Set `temperature: 0.2` to minimize randomness and maximize output consistency.
+
+---
+
+### Challenge 2: Identifying Gaps from Absence of Information
+
+**Problem:** Detecting what the transcript did not mention is harder than extracting
+what it did. A standard extraction prompt will only surface what is present, not what
+is missing.
+
+**Approach:**
+- Explicitly listed all 8 assessment dimensions in the prompt and instructed the model
+  to check each one individually against the transcript.
+- Framed the instruction as: "List every assessment dimension the transcript did NOT
+  address" — forcing the model to treat absence as a signal, not a non-event.
+- Required a specific format: "Dimension name - what specific information is missing"
+  so gaps are actionable, not vague.
+- Linked the gap analysis directly to follow-up questions, so each question must
+  target a named gap — creating a closed loop between what is missing and what to ask.
+
+---
+
+## What I'd Improve With More Time
+
+1. **Side-by-side transcript and analysis view** — currently the transcript disappears
+   after analysis. A split-panel layout would let the psychology intern refer back to
+   the original text while reading the evidence cards.
+
+2. **Retry logic for malformed LLM output** — if the model returns invalid JSON, the
+   app currently shows an error. I would add automatic retry up to 3 times with a
+   slightly modified prompt before surfacing the error to the user.
+
+3. **Export to PDF** — interns need to share analysis reports with supervisors. A
+   one-click PDF export of the full analysis would make this production-ready.
+
+4. **Transcript history** — save past analyses in localStorage so the intern can
+   compare how a Fellow's feedback has changed across multiple calls.
+
+5. **Confidence indicators per evidence quote** — let the model rate how strongly
+   each quote supports the identified pattern (high/medium/low), so interns can
+   prioritize which evidence to discuss in follow-up calls.
+
+6. **Model selector in the UI** — let the user pick which Ollama model to use from
+   a dropdown, pulling available models from the `/health` endpoint. Useful for
+   teams with different hardware capabilities.
+
+---
+
+## Project Structure
+
+```
+supervisor-transcript-analyzer/
+├── backend/
+│   ├── main.py          # FastAPI app, routes, Ollama integration
+│   ├── prompts.py       # Prompt engineering, KPI definitions, rubric
+│   └── requirements.txt # Python dependencies
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── TranscriptInput.jsx
+│   │   │   ├── LoadingSpinner.jsx
+│   │   │   ├── EvidenceCard.jsx
+│   │   │   ├── RubricScore.jsx
+│   │   │   ├── KPIMapping.jsx
+│   │   │   ├── GapAnalysis.jsx
+│   │   │   └── FollowupQuestions.jsx
+│   │   ├── App.js
+│   │   └── App.css
+│   └── package.json
+└── README.md
+```
+
+---
+
+## Sample Transcript (for testing)
+
+Paste this into the app to test it:
+
+```
+The Fellow has been an outstanding addition to our team. She independently
+redesigned our customer onboarding process, reducing drop-off by 30%. She
+communicates clearly in meetings and writes detailed documentation. However,
+I have not seen her take initiative in team discussions or push back when she
+disagrees. She works well with her direct teammates but has not interacted much
+with senior stakeholders. Overall she delivers high quality work consistently
+and on time.
+```
+
+---
+
+## Tech Stack
+
+| Layer     | Technology               |
+|-----------|--------------------------|
+| Frontend  | React (Create React App) |
+| Backend   | Python, FastAPI, Uvicorn |
+| LLM       | Ollama (llama3.2)        |
+| Styling   | CSS Variables, Google Fonts |
